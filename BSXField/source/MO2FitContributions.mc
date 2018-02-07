@@ -36,33 +36,32 @@ class MO2FitContributor {
     // Constructor
     function initialize(dataField) {
         mCurrentHCField = dataField.createField(
-        	"currHemoConc", CURR_HEMO_CONC_FIELD_ID,
-        	Fit.DATA_TYPE_UINT16, { :nativeNum=>54, :mesgType=>Fit.MESG_TYPE_RECORD, :units=>"g/dl" });
-        mLapAverageHCField = dataField.createField(
+       		"currHemoConc", CURR_HEMO_CONC_FIELD_ID,
+       		Fit.DATA_TYPE_UINT16, { :nativeNum=>54, :mesgType=>Fit.MESG_TYPE_RECORD, :units=>"g/dl" });
+       	mLapAverageHCField = dataField.createField(
         	"lapHemoConc", LAP_HEMO_CONC_FIELD_ID,
-        	Fit.DATA_TYPE_UINT16, { :nativeNum=>84, :mesgType=>Fit.MESG_TYPE_LAP, :units=>"g/dl" });
-        mSessionAverageHCField = dataField.createField(
+       		Fit.DATA_TYPE_UINT16, { :nativeNum=>84, :mesgType=>Fit.MESG_TYPE_LAP, :units=>"g/dl" });
+       	mSessionAverageHCField = dataField.createField(
         	"avgHemoConc", AVG_HEMO_CONC_FIELD_ID,
-        	Fit.DATA_TYPE_UINT16, { :nativeNum=>95, :mesgType=>Fit.MESG_TYPE_SESSION, :units=>"g/dl" });
+       		Fit.DATA_TYPE_UINT16, { :nativeNum=>95, :mesgType=>Fit.MESG_TYPE_SESSION, :units=>"g/dl" });
 
-        mCurrentHPField = dataField.createField(
+       	mCurrentHPField = dataField.createField(
         	"currHemoPerc", CURR_HEMO_PERCENT_FIELD_ID,
-        	Fit.DATA_TYPE_UINT16, { :nativeNum=>57, :mesgType=>Fit.MESG_TYPE_RECORD, :units=>"%" });
-        mLapAverageHPField = dataField.createField(
+       		Fit.DATA_TYPE_UINT16, { :nativeNum=>57, :mesgType=>Fit.MESG_TYPE_RECORD, :units=>"%" });
+       	mLapAverageHPField = dataField.createField(
         	"lapHemoConc", LAP_HEMO_PERCENT_FIELD_ID,
-        	Fit.DATA_TYPE_UINT16, { :nativeNum=>87, :mesgType=>Fit.MESG_TYPE_LAP, :units=>"%" });
-        mSessionAverageHPField = dataField.createField(
+       		Fit.DATA_TYPE_UINT16, { :nativeNum=>87, :mesgType=>Fit.MESG_TYPE_LAP, :units=>"%" });
+       	mSessionAverageHPField = dataField.createField(
         	"avgHemoConc", AVG_HEMO_PERCENT_FIELD_ID,
-        	Fit.DATA_TYPE_UINT16, { :nativeNum=>98, :mesgType=>Fit.MESG_TYPE_SESSION, :units=>"%" });
+       		Fit.DATA_TYPE_UINT16, { :nativeNum=>98, :mesgType=>Fit.MESG_TYPE_SESSION, :units=>"%" });
 
         mCurrentHCField.setData(0);
-        mLapAverageHCField.setData(0);
-        mSessionAverageHCField.setData(0);
+       	mLapAverageHCField.setData(0);
+       	mSessionAverageHCField.setData(0);
 
-        mCurrentHPField.setData(0);
-        mLapAverageHPField.setData(0);
-        mSessionAverageHPField.setData(0);
-
+       	mCurrentHPField.setData(0);
+       	mLapAverageHPField.setData(0);
+       	mSessionAverageHPField.setData(0);
     }
 
     function compute(sensor) {

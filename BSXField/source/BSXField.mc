@@ -18,32 +18,23 @@ const STOP_ON_EXIT_RETRIES = 30;
 
 const BSX_ORANGE = 0xff8400;
 
-
-var fonts = [Gfx.FONT_XTINY,Gfx.FONT_TINY,Gfx.FONT_SMALL,Gfx.FONT_MEDIUM,Gfx.FONT_LARGE,
-             Gfx.FONT_NUMBER_MILD,Gfx.FONT_NUMBER_MEDIUM,Gfx.FONT_NUMBER_HOT,Gfx.FONT_NUMBER_THAI_HOT];
-
-
 class MO2Field extends Ui.DataField
 {
     //Label Variables
     hidden var mLabelString = "BSXinsight";
     hidden var mLabelFont = Gfx.FONT_TINY;
-    hidden var mLabelX;
-    hidden var mLabelY = 5; //Does not change
 
     //Hemoglobin Concentration variables
 	hidden var mHCUnitsString = "tHb";
     hidden var mHCUnitsWidth;
     hidden var mHCX;
     hidden var mHCY;
-    hidden var mHCMaxWidth;
 
     //Hemoglobin Percentage variables
     hidden var mHPUnitsString = "%";
     hidden var mHPUnitsWidth;
     hidden var mHPX;
     hidden var mHPY;
-    hidden var mHPMaxWidth;
 
     // Fit Contributor
     hidden var mFitContributor;
@@ -60,113 +51,101 @@ class MO2Field extends Ui.DataField
     hidden var xCenter;
     hidden var yCenter;
 
-    const INSIGHT_STATE_UNKNOWN = 0;
-    const INSIGHT_STATE_STARTING = 1;
-    const INSIGHT_STATE_RUNNING = 2;
-    const INSIGHT_STATE_STOPPING = 3;
-    const INSIGHT_STATE_STOPPED = 4;
-
-    var mDeviceState = INSIGHT_STATE_UNKNOWN;
     hidden var startStopCounter;
-
-    const TEXT_STATE_NONE = 0;
-    const TEXT_STATE_STARTING = 1;
-    const TEXT_STATE_STOPPING = 2;
-
-    hidden var startStopTextState = TEXT_STATE_NONE;
+    hidden var lastTimerTime = 0;
 
     //! Constructor
     function initialize(sensor) {
     	DataField.initialize();
 
 		bsxSensor = sensor;
-        mFitContributor = new MO2FitContributor(self);
-
-        mDeviceState = INSIGHT_STATE_UNKNOWN;
+		if (bsxSensor.supportsFIT) {
+	        mFitContributor = new MO2FitContributor(self);
+		}
         startStopCounter = 0;
-        startStopTextState = TEXT_STATE_NONE;
     }
 
     function compute(info) {
-    	if (info != null && mDeviceState == INSIGHT_STATE_RUNNING) {
-	        mFitContributor.compute(bsxSensor);
-	    }
-
-    	if (info) {
-        	if (info.startTime) {
-        		if (mDeviceState == INSIGHT_STATE_UNKNOWN) {
-        			if (! bsxSensor.searching) {
-						mDeviceState = INSIGHT_STATE_STOPPED;
-					}
-        		}
-
-        		if (mDeviceState == INSIGHT_STATE_STOPPED) {
-        			/*
-        			 * @todo - This needs to NOT start the device.
-        			 */
-        			// if unset or stopped
-        			mDeviceState = INSIGHT_STATE_STARTING;
-        			startStopCounter = START_RETRIES;
-        		} else if (mDeviceState == INSIGHT_STATE_STARTING) {
-        			// if already started
-					if (startStopCounter > 0) {
-						startStopCounter -= 1;
-					} else {
-						mDeviceState = INSIGHT_STATE_RUNNING;
-					}
-				} else if (mDeviceState == INSIGHT_STATE_RUNNING) {
-					// Do nothing -- device is operating normally.
-				} else if (mDeviceState == INSIGHT_STATE_STOPPING) {
-					if (startStopCounter > 0) {
-						startStopCounter -= 1;
-					} else {
-						mDeviceState = INSIGHT_STATE_STOPPED;
-					}
-				} else if (mDeviceState == INSIGHT_STATE_STOPPED) {
-					// Do nothing -- device is stopped.
-        		}
-        	} else {
-        		if (mDeviceState == INSIGHT_STATE_UNKNOWN) {
-        			// Don't do anything if the state is unknown.
-        		} else if (mDeviceState == INSIGHT_STATE_RUNNING) {
-        			mDeviceState = INSIGHT_STATE_STOPPING;
-        			startStopCounter = STOP_RETRIES;
-        		} else if (mDeviceState == INSIGHT_STATE_STOPPING) {
-					if (startStopCounter > 0) {
-						startStopCounter -= 1;
-					} else {
-						// The device isn't responding to stop activity commands, stop sending them.
-						mDeviceState = INSIGHT_STATE_STOPPED;
-					}
-        		}
-        	}
-        }
-
-		if (bsxSensor == null || bsxSensor.searching == true) {
+		if (bsxSensor.searching) {
 			return;
 		}
 
-       	startStopTextState = TEXT_STATE_NONE;
-       	if (mDeviceState != INSIGHT_STATE_UNKNOWN && startStopCounter != 0) {
-			if (mDeviceState == INSIGHT_STATE_STARTING) {
-				if (bsxSensor.data.currentHemoPercent > 100.0) {
-					bsxSensor.startActivity();
-					startStopTextState = TEXT_STATE_STARTING;
-				} else {
-					startStopCounter = 0;
-					mDeviceState = INSIGHT_STATE_RUNNING;
-				}
-			} else if (mDeviceState == INSIGHT_STATE_STOPPING) {
-				if (bsxSensor.data.currentHemoPercent <= 100.0) {
-					/*
-					 * The "stop activity" command will be sent until invalid data is
-					 * received or the counter runs out.
-					 */
+    	/*
+    	 * Log FIT file data if running and the feature is enabled.
+    	 */
+    	if (info != null && bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_RUNNING && mFitContributor != null) {
+	        mFitContributor.compute(bsxSensor);
+	    }
+
+    	if (info != null && info.startTime != null) {
+    		var newActivity = lastTimerTime > info.timerTime;
+    		var stoppedActivity = lastTimerTime == info.timerTime;
+
+    		lastTimerTime = info.timerTime;
+
+       		/*
+       		 * There is a start time, which means there is an activity.
+       		 */
+       		if (bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_UNKNOWN && ! stoppedActivity &&
+       				((! (info has :timerState)) || info.timerState == Act.TIMER_STATE_ON)) {
+       			// DEBUG
+       			//System.println("start tardy device");
+
+       			/*
+       			 * The head unit thinks it started an activity, but the Insight hasn't been
+       			 * started or anything.
+       			 */
+				bsxSensor.startActivity();
+       		} else if (bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_STOPPED && newActivity) {
+       			if (bsxSensor.page_80 == null || (bsxSensor.page_80.manufacturer != 0 &&
+       					bsxSensor.page_80.manufacturer == bsxSensor.ANT_BSX_MAN_ID)) {
+       				// DEBUG
+       				//System.println("restart stopped device");
+
+       				/*
+       				 * This app thinks the Insight should be stopped, but the head unit
+       				 * thinks it should be running.
+       				 */
+        			bsxSensor.startActivity();
+       			}
+       		}
+       	} else {
+       		/*
+       		 * There is no start time at all, so there is no activity.
+       		 */
+       		if (bsxSensor.gDeviceState != BSXinsightSensor.INSIGHT_STATE_STOPPED) {
+       			// DEBUG
+       			//System.println("stop runaway device");
+
+				bsxSensor.stopActivity();
+       		}
+       	}
+
+       	if (bsxSensor.gDeviceState != BSXinsightSensor.INSIGHT_STATE_UNKNOWN) {
+			if (bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_STARTING) {
+				// DEBUG
+				//System.println("start activity");
+
+				/*
+				 * The "start activity" command will be sent until valid data is
+				 * received or the counter runs out.
+				 */
+				bsxSensor.startActivity();
+			} else if (bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_STOPPING) {
+				// DEBUG
+				//System.println("stop activity");
+
+				/*
+				 * The "stop activity" command will be sent until invalid data is
+				 * received or the counter runs out.
+				 */
+				bsxSensor.stopActivity();
+			} else if (bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_STOPPED) {
+				if (bsxSensor.data.isValid) {
+					// DEBUG
+					//System.println("zombie device came back to life");
+
 					bsxSensor.stopActivity();
-					startStopTextState = TEXT_STATE_STOPPING;
-				} else {
-					startStopCounter = 0;
-					mDeviceState = INSIGHT_STATE_STOPPED;
 				}
 			}
 		}
@@ -178,16 +157,13 @@ class MO2Field extends Ui.DataField
 
 		var top = BORDER_PAD;
 
-    	//Center the field label
-        mLabelX = width / 2;
-
         var vLayoutWidth;
         var vLayoutHeight;
-        var vLayoutFontIdx;
+        var vLayoutFontId;
 
         var hLayoutWidth;
         var hLayoutHeight;
-        var hLayoutFontIdx;
+        var hLayoutFontId;
 
         //Units width does not change, compute only once
         if (mHCUnitsWidth == null) {
@@ -200,15 +176,15 @@ class MO2Field extends Ui.DataField
         //Compute data width/height for both layouts
         hLayoutWidth = (width - (4 * BORDER_PAD)) / 2;
         hLayoutHeight = height - (4 * BORDER_PAD) - top;
-        hLayoutFontIdx = selectDataFont(dc, (hLayoutWidth - mHCUnitsWidth), hLayoutHeight - (hLayoutHeight / 8));
+        hLayoutFontId = selectDataFont(dc, (hLayoutWidth - mHCUnitsWidth), hLayoutHeight - (hLayoutHeight / 8));
 
         vLayoutWidth = width - (2 * BORDER_PAD);
         vLayoutHeight = (height - top - (4 * BORDER_PAD)) / 2;
-        vLayoutFontIdx = selectDataFont(dc, (vLayoutWidth - mHCUnitsWidth), vLayoutHeight-(vLayoutHeight/8));
+        vLayoutFontId = selectDataFont(dc, (vLayoutWidth - mHCUnitsWidth), vLayoutHeight-(vLayoutHeight/8));
 
         //Use the horizontal layout if it supports a larger font
-        if (hLayoutFontIdx > vLayoutFontIdx) {
-            mDataFont = fonts[hLayoutFontIdx];
+        if (hLayoutFontId > vLayoutFontId) {
+            mDataFont = hLayoutFontId;
             mDataFontAscent = Gfx.getFontAscent(mDataFont);
 
  			//Compute the center of the Hemo Percentage data
@@ -223,7 +199,7 @@ class MO2Field extends Ui.DataField
             separator = [(width / 2), top + 2*BORDER_PAD, (width / 2), height - BORDER_PAD];
         } else {
         	//otherwise, use the veritical layout
-            mDataFont = fonts[vLayoutFontIdx];
+            mDataFont = vLayoutFontId;
             mDataFontAscent = Gfx.getFontAscent(mDataFont);
 
             mHPX = BORDER_PAD + (vLayoutWidth / 2) - (mHPUnitsWidth / 2);
@@ -244,7 +220,6 @@ class MO2Field extends Ui.DataField
             //Do not use a separator line for vertical layout
             separator = null;
         }
-
         xCenter = dc.getWidth() / 2;
         yCenter = dc.getHeight() / 2;
     }
@@ -253,19 +228,21 @@ class MO2Field extends Ui.DataField
      * @brief Find a font suitable for displaying a data field.
      */
     function selectDataFont(dc, width, height) {
-        var testString = "88.88"; //Dummy string to test data width
-        var fontIdx;
+        var fontId = null;
         var dimensions;
 
-        //Search through fonts from biggest to smallest
-        for(fontIdx = (fonts.size() - 1); fontIdx > 0; fontIdx--) {
-            dimensions = dc.getTextDimensions(testString, fonts[fontIdx]);
-            if ((dimensions[0] <= width) && (dimensions[1] <= height)) {
+        /*
+         * This takes advantage of the fact that these font identifiers are numbered
+         * contiguously.
+         */
+        for(fontId = Gfx.FONT_NUMBER_THAI_HOT; fontId >= Gfx.FONT_XTINY; fontId--) {
+            dimensions = dc.getTextDimensions("88.88", fontId);
+            if ((dimensions[0] < width) && (dimensions[1] < height)) {
                 //If this font fits, it is the biggest one that does
                 break;
             }
         }
-        return fontIdx;
+        return fontId;
     }
 
     /**
@@ -293,6 +270,7 @@ class MO2Field extends Ui.DataField
             dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, "No Channel!", Gfx.TEXT_JUSTIFY_CENTER);
         } else if (true == bsxSensor.searching) {
         	var howLong = Time.now().value() - bsxSensor.searchStart;
+        	var message = null;
 
         	if (howLong < 5) {
         		/*
@@ -301,135 +279,133 @@ class MO2Field extends Ui.DataField
         		dc.setColor(BSX_ORANGE, Gfx.COLOR_BLACK);
         		dc.clear();
         		dc.setColor(BSX_ORANGE, Gfx.COLOR_TRANSPARENT);
-        		dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, "BSXinsight", Gfx.TEXT_JUSTIFY_CENTER);
-        	} else if (mDeviceState != INSIGHT_STATE_RUNNING) {
+        		message = "BSXinsight";
+        	} else if (bsxSensor.gDeviceState != BSXinsightSensor.INSIGHT_STATE_RUNNING) {
         		/*
         		 * "Waiting until the device has completed the connection process at least once.
         		 */
-	            dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, "Waiting", Gfx.TEXT_JUSTIFY_CENTER);
+        		message = "Waiting";
 	        } else {
 	        	/*
 	        	 * "Reconnecting" after the device has had an activity started.
 	        	 */
-	            dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, "Reconnecting", Gfx.TEXT_JUSTIFY_CENTER);
+	        	message = "Reconnecting";
 	        }
+        	dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, message, Gfx.TEXT_JUSTIFY_CENTER);
         } else {
             var x;
             var y;
-            var HemoConc = bsxSensor.data.totalHemoConcentration.format("%.2f");
-            var HemoPerc = bsxSensor.data.currentHemoPercent.format("%.1f");
+			var message = null;
+
+			if (bsxSensor.page_80 != null && bsxSensor.page_80.manufacturer != 0) {
+				// DEBUG
+				//System.println("Manufacturer = " + bsxSensor.page_80.manufacturer);
+
+				if (bsxSensor.page_80.manufacturer != bsxSensor.ANT_BSX_MAN_ID) {
+					// DEBUG
+					//System.println("State = " + bsxSensor.gDeviceState);
+
+					if (bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_RUNNING) {
+						// DEBUG
+						//System.println("Unsupported device.");
+						/*
+					 	 * Unsupported device type.
+					 	 */
+					 	bsxSensor.stopActivity();
+        			}
+				}
+			}
 
 			var totalHemo = bsxSensor.data.totalHemoConcentration;
+            var HemoConc = totalHemo <= 40.0 ? totalHemo.format("%.2f"):"--.--";
+
 			var curHemoPercent = bsxSensor.data.currentHemoPercent;
+            var HemoPerc = curHemoPercent <= 100.0 ? curHemoPercent.format("%.1f"):"--.-";
 
 			var shouldDraw = true;
 
-			if (mDeviceState != INSIGHT_STATE_RUNNING && mDeviceState != INSIGHT_STATE_UNKNOWN) {
-				switch(mDeviceState) {
-				case INSIGHT_STATE_STARTING:
-					dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, "Starting", Gfx.TEXT_JUSTIFY_CENTER);
+			if (bsxSensor.gDeviceState != BSXinsightSensor.INSIGHT_STATE_RUNNING && bsxSensor.gDeviceState != BSXinsightSensor.INSIGHT_STATE_UNKNOWN) {
+				switch(bsxSensor.gDeviceState) {
+				case BSXinsightSensor.INSIGHT_STATE_STARTING:
+					message = "Starting";
 					shouldDraw = false;
 					break;
-				case INSIGHT_STATE_STOPPING:
-					dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, "Saving", Gfx.TEXT_JUSTIFY_CENTER);
+				case BSXinsightSensor.INSIGHT_STATE_STOPPING:
+					message = "Saving";
 					shouldDraw = false;
 					break;
-				case INSIGHT_STATE_STOPPED:
-					dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, "Saved", Gfx.TEXT_JUSTIFY_CENTER);
+				case BSXinsightSensor.INSIGHT_STATE_STOPPED:
+					message = "Saved";
 					shouldDraw = false;
 					break;
 				}
 			}
 
 			if (shouldDraw) {
-				if (totalHemo > 40.0) {
-					/*
-					 * Concentrations over 40 g/dl are invalid.
-					 */
-					HemoConc = "--.--";
-				}
-
 		        //Draw Hemoglobin Concnetration
 		        dc.drawText(mHCX, mHCY, mDataFont, HemoConc, Gfx.TEXT_JUSTIFY_CENTER);
 	            x = mHCX + (dc.getTextWidthInPixels(HemoConc, mDataFont) / 2) + UNITS_SPACING;
 	            y = mHCY + mDataFontAscent - Gfx.getFontAscent(mUnitsFont);
 	            dc.drawText(x, y, mUnitsFont, mHCUnitsString, Gfx.TEXT_JUSTIFY_LEFT);
 
-				if (curHemoPercent > 100.0) {
-					/*
-					 * Values over 100 are invalid.
-					 */
-					HemoPerc = "--.-";
-				}
-
 		        //Draw Hemoglobin Percentage
 		        dc.drawText(mHPX, mHPY, mDataFont, HemoPerc, Gfx.TEXT_JUSTIFY_CENTER);
 	            x = mHPX + (dc.getTextWidthInPixels(HemoPerc, mDataFont) / 2) + UNITS_SPACING;
 	            y = mHPY + mDataFontAscent - Gfx.getFontAscent(mUnitsFont);
 	            dc.drawText(x, y, mUnitsFont, mHPUnitsString, Gfx.TEXT_JUSTIFY_LEFT);
-            }
 
-            if (separator != null && shouldDraw) {
-                dc.setColor(fgColor, fgColor);
-                dc.drawLine(separator[0], separator[1], separator[2], separator[3]);
+	            if (separator != null) {
+                	dc.setColor(fgColor, fgColor);
+                	dc.drawLine(separator[0], separator[1], separator[2], separator[3]);
+            	}
+            } else {
+				dc.drawText(xCenter, yCenter, Gfx.FONT_MEDIUM, message, Gfx.TEXT_JUSTIFY_CENTER);
             }
         }
     }
 
     function onTimerStart() {
-        mFitContributor.setTimerRunning(true);
+    	// DEBUG
+    	//System.println("onTimerStart()");
 
-        var payload = new[8];
-
-        payload[0] = 0x10;			// Command page.
-        payload[1] = 0x01;			// Start command.
-        payload[2] = 0xFF;			// Required value;
-        payload[3] = 0x00;			// Use UTC time -- no offset.
-
-        var now = Time.now().value();
-        for (var i = 0;i < 4;i++) {
-        	payload[4 + i] = (now & 0xFF);
-        	now = now >> 8;
-        }
-        var message = new Ant.Message();
-        message.setPayload(payload);
-        var result = bsxSensor.sendAcknowledge(message);
+    	if (mFitContributor != null) {
+	        mFitContributor.setTimerRunning(true);
+	    }
+		bsxSensor.startActivity();
     }
 
     function onTimerStop() {
-        mFitContributor.setTimerRunning(false);
+    	// DEBUG
+    	//System.println("onTimerStop()");
 
-        var payload = new[8];
-
-        payload[0] = 0x10;			// Command page.
-        payload[1] = 0x02;			// Stop command.
-        payload[2] = 0xFF;			// Required value;
-        payload[3] = 0x00;			// Use UTC time -- no offset.
-
-        var now = Time.now().value();
-        for (var i = 0;i < 4;i++) {
-        	payload[4 + i] = (now & 0xFF);
-        	now = now >> 8;
-        }
-        var message = new Ant.Message();
-        message.setPayload(payload);
-        var result = bsxSensor.sendAcknowledge(message);
+    	if (mFitContributor != null) {
+	        mFitContributor.setTimerRunning(false);
+		}
+		bsxSensor.stopActivity();
     }
 
     function onTimerPause() {
-        mFitContributor.setTimerRunning(false);
+    	if (mFitContributor != null) {
+	        mFitContributor.setTimerRunning(false);
+		}
     }
 
     function onTimerResume() {
-        mFitContributor.setTimerRunning(true);
+    	if (mFitContributor != null) {
+	        mFitContributor.setTimerRunning(true);
+	    }
     }
 
     function onTimerLap() {
-        mFitContributor.onTimerLap();
+    	if (mFitContributor != null) {
+	        mFitContributor.onTimerLap();
+	    }
     }
 
     function onTimerReset() {
-        mFitContributor.onTimerReset();
+    	if (mFitContributor != null) {
+	        mFitContributor.onTimerReset();
+	    }
     }
 }
 
@@ -437,7 +413,6 @@ class MO2Field extends Ui.DataField
 class BSXField extends App.AppBase
 {
 	var bsxSensor;
-    var cachedView;
 
 	function initialize() {
 		AppBase.initialize();
@@ -455,8 +430,8 @@ class BSXField extends App.AppBase
     }
 
     function getInitialView() {
-    	cachedView = new MO2Field(bsxSensor);
-        return [cachedView];
+    	return [new MO2Field(bsxSensor)];
+        //return [cachedView];
     }
 
     function onStop(state) {
@@ -464,7 +439,7 @@ class BSXField extends App.AppBase
 		// If it is non-null there is an expectation of returning.
     	if (state == null) {
     		var prevNow = Time.now().value();
-			if (cachedView != null && cachedView.mDeviceState == INSIGHT_STATE_RUNNING) {
+			if (bsxSensor != null && bsxSensor.gDeviceState == BSXinsightSensor.INSIGHT_STATE_RUNNING) {
 				/*
 				 * Ensure the Insight is stopped -- the watch or computer is about to be stopped
 				 * and there won't be another chance.
